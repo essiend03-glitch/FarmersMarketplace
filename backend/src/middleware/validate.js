@@ -9,7 +9,12 @@ const WEAK_PASSWORDS = new Set([
 
 const handle = (req, res, next) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  if (!errors.isEmpty()) return res.status(400).json({
+    success: false,
+    message: errors.array()[0].msg,
+    code: 'validation_error',
+    errors: errors.array(),
+  });
   next();
 };
 
@@ -45,6 +50,24 @@ const schemas = {
   order: [
     body('product_id').isInt({ gt: 0 }).withMessage('product_id must be a positive integer'),
     body('quantity').isInt({ gt: 0 }).withMessage('quantity must be a positive integer'),
+    handle,
+  ],
+  sendXLM: [
+    body('destination')
+      .trim()
+      .notEmpty().withMessage('destination is required')
+      .matches(/^G[A-Z2-7]{55}$/).withMessage('destination must be a valid Stellar public key'),
+    body('amount')
+      .isFloat({ gt: 0 }).withMessage('amount must be a positive number')
+      .custom(v => {
+        if (parseFloat(v) < 0.0000001) throw new Error('amount too small');
+        return true;
+      }),
+    body('memo')
+      .optional()
+      .isString()
+      .isLength({ max: 28 }).withMessage('memo must be 28 characters or fewer')
+      .trim(),
     handle,
   ],
 };

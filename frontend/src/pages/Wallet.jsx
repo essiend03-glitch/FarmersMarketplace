@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { getStellarErrorMessage } from '../utils/stellarErrors';
 
 const s = {
   page: { maxWidth: 800, margin: '0 auto', padding: 24 },
@@ -9,11 +10,15 @@ const s = {
   balance: { fontSize: 40, fontWeight: 700, color: '#2d6a4f' },
   key: { fontSize: 12, color: '#888', wordBreak: 'break-all', marginTop: 8, fontFamily: 'monospace' },
   btn: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 16 },
+  btnDanger: { background: '#c0392b', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 },
   tx: { borderBottom: '1px solid #eee', padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   sent: { color: '#c0392b', fontWeight: 600 },
   recv: { color: '#2d6a4f', fontWeight: 600 },
   hash: { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
   msg: { padding: '10px 14px', borderRadius: 8, marginTop: 12, fontSize: 14 },
+  label: { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 14 },
+  input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' },
+  row: { display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 16 },
 };
 
 export default function Wallet() {
@@ -22,13 +27,22 @@ export default function Wallet() {
   const [txs, setTxs] = useState([]);
   const [funding, setFunding] = useState(false);
   const [fundMsg, setFundMsg] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+
+  // Send form state
+  const [sendForm, setSendForm] = useState({ destination: '', amount: '', memo: '' });
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState(null);
 
   async function load() {
+    setLoadError(null);
     try {
       const [w, t] = await Promise.all([api.getWallet(), api.getTransactions()]);
       setWallet(w);
       setTxs(t);
-    } catch {}
+    } catch (err) {
+      setLoadError(getStellarErrorMessage(err));
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -41,15 +55,48 @@ export default function Wallet() {
       setFundMsg({ type: 'ok', text: res.message });
       load();
     } catch (err) {
-      setFundMsg({ type: 'err', text: err.message });
+      setFundMsg({ type: 'err', text: getStellarErrorMessage(err) });
     } finally {
       setFunding(false);
+    }
+  }
+
+  async function handleSend(e) {
+    e.preventDefault();
+    setSendMsg(null);
+
+    const amount = parseFloat(sendForm.amount);
+    if (!sendForm.destination.trim()) return setSendMsg({ type: 'err', text: 'Destination address is required.' });
+    if (!/^G[A-Z2-7]{55}$/.test(sendForm.destination.trim())) return setSendMsg({ type: 'err', text: 'Invalid Stellar public key.' });
+    if (!amount || amount <= 0) return setSendMsg({ type: 'err', text: 'Amount must be greater than 0.' });
+    if (sendForm.memo.length > 28) return setSendMsg({ type: 'err', text: 'Memo must be 28 characters or fewer.' });
+
+    setSending(true);
+    try {
+      const res = await api.sendXLM({
+        destination: sendForm.destination.trim(),
+        amount,
+        memo: sendForm.memo.trim() || undefined,
+      });
+      setSendMsg({ type: 'ok', text: `Sent ${res.amount} XLM`, txHash: res.txHash });
+      setSendForm({ destination: '', amount: '', memo: '' });
+      load();
+    } catch (err) {
+      setSendMsg({ type: 'err', text: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
   return (
     <div style={s.page}>
       <div style={s.title}>💳 My Wallet</div>
+
+      {loadError && (
+        <div style={{ ...s.msg, background: '#fee', color: '#c0392b', marginBottom: 16 }}>
+          ⚠️ {loadError}
+        </div>
+      )}
 
       <div style={s.card}>
         <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>XLM Balance</div>
@@ -66,6 +113,66 @@ export default function Wallet() {
         )}
       </div>
 
+      {/* Send XLM card */}
+      <div style={s.card}>
+        <h3 style={{ marginBottom: 4, color: '#333' }}>↑ Send XLM</h3>
+        <p style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>Transfer XLM to any external Stellar address.</p>
+
+        <form onSubmit={handleSend} noValidate>
+          <label style={s.label}>Destination Address</label>
+          <input
+            style={s.input}
+            type="text"
+            placeholder="G..."
+            value={sendForm.destination}
+            onChange={e => setSendForm(f => ({ ...f, destination: e.target.value }))}
+            spellCheck={false}
+          />
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={s.label}>Amount (XLM)</label>
+              <input
+                style={s.input}
+                type="number"
+                min="0.0000001"
+                step="any"
+                placeholder="0.00"
+                value={sendForm.amount}
+                onChange={e => setSendForm(f => ({ ...f, amount: e.target.value }))}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={s.label}>Memo <span style={{ color: '#aaa', fontWeight: 400 }}>(optional, max 28 chars)</span></label>
+              <input
+                style={s.input}
+                type="text"
+                maxLength={28}
+                placeholder="e.g. payment for invoice #42"
+                value={sendForm.memo}
+                onChange={e => setSendForm(f => ({ ...f, memo: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <button type="submit" style={{ ...s.btn, marginTop: 16 }} disabled={sending}>
+            {sending ? 'Sending...' : '🚀 Send XLM'}
+          </button>
+        </form>
+
+        {sendMsg && (
+          <div style={{ ...s.msg, background: sendMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: sendMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+            {sendMsg.text}
+            {sendMsg.txHash && (
+              <div style={{ marginTop: 6, fontSize: 12 }}>
+                TX: <a href={`https://stellar.expert/explorer/testnet/tx/${sendMsg.txHash}`} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', wordBreak: 'break-all' }}>{sendMsg.txHash}</a>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Transaction history */}
       <div style={s.card}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>Transaction History</h3>
         {txs.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No transactions yet. Fund your wallet and make a purchase.</p>}

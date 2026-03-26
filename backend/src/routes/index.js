@@ -4,11 +4,14 @@ const rateLimit = require('express-rate-limit');
 const authLimiter  = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many attempts, try again later' } });
 const orderLimiter = rateLimit({ windowMs: 60 * 1000,       max: 10, message: { error: 'Too many orders, slow down' } });
 const fundLimiter  = rateLimit({ windowMs: 60 * 60 * 1000,  max: 5,  message: { error: 'Funding limit reached, try again in an hour' } });
+const sendLimiter  = rateLimit({ windowMs: 60 * 1000,       max: 5,  message: { error: 'Too many send requests, slow down' } });
 
 router.use('/api/auth/login',    authLimiter);
 router.use('/api/auth/register', authLimiter);
+router.use('/api/auth/refresh',  authLimiter);
 router.use('/api/orders',        orderLimiter);
 router.use('/api/wallet/fund',   fundLimiter);
+router.use('/api/wallet/send',   sendLimiter);
 
 router.use('/api/auth',     require('./auth'));
 router.use('/api/products', require('./products'));
